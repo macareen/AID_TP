@@ -1142,7 +1142,7 @@ su mayoría de variables con 2 o 3 categorías.
 <span id="_Toc79702308" class="anchor"></span>Figura 1: clusters
 generados con las variables categóricas
 
-![Dendograma circular](media/dendogram.png)
+![Dendograma circular](dendogram.png)
 
 Aún así, puede verse en la Figura 1 que nuevamente se observó el efecto
 de un clúster conteniendo a la gran mayoría de las observaciones,
