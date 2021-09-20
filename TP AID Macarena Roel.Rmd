@@ -1,0 +1,921 @@
+---
+title: "TP AID"
+author: "Macarena Roel"
+date: "`r format(Sys.time(), '%d de %B del %Y')`"
+output:
+  word_document: 
+    fig_caption: yes
+  pdf_document:
+    fig_caption: yes
+    fig_crop: no
+    number_sections: yes
+header-includes: \usepackage[spanish]{babel}
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(message = F)
+knitr::opts_chunk$set(warning = F)
+
+knitr::opts_chunk$set(fig.width = 9)
+knitr::opts_chunk$set(fig.height = 9)
+knitr::opts_chunk$set(fig.align = "center")
+
+library(compareGroups)
+library(pander)
+library(tidyverse)
+library(kableExtra)
+library(table1)
+library(ggplot2)
+library(GGally)
+library(ggpubr)
+library(naniar)
+library(ggplot2)
+library(mclust)     
+library(Hotelling)      
+library(caret)
+```
+
+A pesar de tomar todos los recaudos pertinentes para disminuír la variación entre los datos seleccionados en cada corrida, se notó una importante variación en los mismos. En el archivo *TP AID resultados utilizados para la confección del informe* se ven las respuestas utilizadas para la elaboración del informe entregado.
+
+```{r carga set de datos}
+data <- read.csv("HRIBM_20201116194915.csv",
+	header=TRUE)
+facts <- c("Attrition", "BusinessTravel", "Education", "EducationField", "Department", "Gender", "JobRole", "MaritalStatus", "Over18",                  "OverTime","JobLevel","JobSatisfaction","JobInvolvement")
+data[facts]<-lapply(data[facts] , factor)
+
+factores<-data[facts]
+
+
+cols_remove <- c("X","EmployeeCount","StockOptionLevel","WorkLifeBalance","JobRole","EmployeeNumber","DailyRate", "Education", "EducationField" ,"PercentSalaryHike","EnvironmentSatisfaction", "StandardHours", "PerformanceRating", "RelationshipSatisfaction","MonthlyRate    ", "Over18"    )
+
+data <- data[, !(colnames(data) %in% cols_remove)]
+
+data_yes<-data[which(data$Attrition=="Yes"),]
+data_no<-data[which(data$Attrition=="No"),]
+data_temp<-sample_n(data_no,size=350)
+data<-rbind(data_yes,data_temp)
+
+```
+
+```{r}
+table(data$Attrition)
+```
+
+
+```{r}
+summary(data)
+```
+
+
+```{r}
+nums <- as.data.frame(dplyr::select_if(data, is.numeric))
+nums2 <- nums  
+nums$Attrition<-data$Attrition
+```
+
+```{r}
+library(ggplot2)
+library(GGally)
+nums %>% mutate(Attrition  = factor(Attrition)) %>%
+         ggpairs(columns=names(nums[,c(1:6,13)]), 
+                 aes(color = Attrition ),
+                 upper = list(continuous = wrap(ggally_cor, size = 5, displayGrid = FALSE,alpha=1)),
+                 lower = list(combo = wrap("facethist", bins = 30)),
+                 diag = list(continuous = wrap("densityDiag", alpha = 0.5)),axisLabels="show") 
+```
+```{r}
+library(ggplot2)
+library(GGally)
+nums %>% mutate(Attrition  = factor(Attrition)) %>%
+         ggpairs(columns=names(nums[,c(7:13)]), 
+                 aes(color = Attrition ),
+                 upper = list(continuous = wrap(ggally_cor, size = 5, displayGrid = FALSE,alpha=1)),
+                 lower = list(combo = wrap("facethist", bins = 30)),
+                 diag = list(continuous = wrap("densityDiag", alpha = 0.5)),axisLabels="show") 
+```
+```{r}
+res1 <- compareGroups(Attrition ~ ., 
+                      data = data, 
+                      ref = 1, 
+                      simplify = FALSE,
+                      max.ylev = 20,
+                      max.xlev = 20,
+                      oddsratio.method = "wald",
+                      include.miss = F, method = 2
+                      )
+
+tab<-createTable(res1, 
+                 show.ratio = F, 
+                 show.all = T, 
+                 show.p.overall=T)
+
+export2md(tab, 
+          caption = "Tabla 1", 
+          width = '15cm', 
+          header.labels = c(p.ratio = "p-valor", 
+                            p.overall = "p-valor", 
+                            all = "Total \n N(%)",
+                            ratio = "OR \n [IC95%]",
+                            N='N(%)'))
+
+
+```
+
+## Normalidad multivariada y homocedasticidad
+```{r}
+library(rstatix)
+box_m(nums[,-13],nums[,"Attrition"])
+
+```
+```{r}
+mshapiro_test(nums[,-13])
+
+```
+
+
+## Hotelling
+
+```{r}
+fit=hotelling.test (.~Attrition ,  data=nums)
+fit
+```
+```{r}
+names(which(tab$descr[,4]<0.01))
+```
+
+
+# ACP
+
+```{r fig.height=10, fig.width=10}
+library(ggbiplot)
+set.seed(127)
+datos.pc = prcomp(nums2,scale = TRUE)
+
+ggbiplot(datos.pc, obs.scale=0.01 ,var.scale=1,alpha=0.5,groups=factor(nums$Attrition), color="pink") +
+  scale_color_manual(name="Attrition", values=c("purple","lightblue"),labels=c("No","Si")) +  
+theme(legend.direction ="horizontal", legend.position = "top")
+```
+```{r}
+library(factoextra)
+eig.val <- get_eigenvalue(datos.pc)
+res.var <- get_pca_var(datos.pc)
+sort(format(res.var$contrib[,1],scientific = F),decreasing = T)
+```
+```{r}
+names(which((res.var$contrib[,1])>7))
+```
+
+
+# AD
+
+```{r dividir en train test}
+library(caret)
+
+set.seed(127)
+training.samples <- createDataPartition(data$Attrition, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+set.seed(127)
+train.data <- data[training.samples, ]
+
+set.seed(127)
+test.data <- data[-training.samples, ]
+```
+
+
+
+```{r transformar y centrar datos}
+set.seed(127)
+preproc.param <- train.data %>% 
+  preProcess(method = c("center", "scale"))
+
+set.seed(127)
+train.transformed <- preproc.param %>% predict(train.data)
+set.seed(127)
+test.transformed <- preproc.param %>% predict(test.data)
+```
+
+```{r}
+library(rstatix)
+test_norm <- as.data.frame(dplyr::select_if(train.transformed, is.numeric))
+
+test_norm$Attrition<-train.transformed$Attrition
+
+box_m(test_norm[,-13],test_norm[,"Attrition"])
+
+```
+```{r}
+mshapiro_test(test_norm[,-13])
+
+```
+
+## Modelo 1: todas las variables
+
+```{r}
+library(MASS)
+modelo1 <- lda(Attrition~., data = train.transformed)
+modelo1
+```
+
+```{r}
+plot(modelo1)
+
+```
+
+
+```{r}
+predictions <- modelo1 %>% predict(test.transformed)
+
+```
+
+
+```{r}
+m1_porc<-mean(predictions$class==test.transformed$Attrition)
+
+```
+
+```{r}
+table(predictions$class,test.transformed$Attrition)
+```
+
+```{r}
+modelo1_miss<-which(predictions$class!=test.transformed$Attrition)
+```
+
+## Modelo 2: variables numéricas importantes para el primer CP
+```{r}
+library(MASS)
+modelo2 <- lda(Attrition~ Age + MonthlyIncome + TotalWorkingYears + YearsAtCompany + YearsInCurrentRole + YearsSinceLastPromotion + YearsWithCurrManager, data = train.transformed)
+modelo2
+```
+
+```{r}
+plot(modelo2)
+
+```
+
+
+```{r}
+predictions <- modelo2 %>% predict(test.transformed)
+
+```
+
+
+
+```{r}
+m2_porc<-mean(predictions$class==test.transformed$Attrition)
+
+```
+
+```{r}
+table(predictions$class,test.transformed$Attrition)
+```
+
+```{r}
+modelo2_miss<-which(predictions$class!=test.transformed$Attrition)
+```
+
+## Modelo 3: variables significativamente diferentes entre ambos grupos
+
+```{r}
+library(MASS)
+modelo3 <- lda(Attrition~ Age + BusinessTravel + Department + DistanceFromHome + JobInvolvement + JobLevel + JobSatisfaction + MaritalStatus + MonthlyIncome + OverTime + TotalWorkingYears + YearsAtCompany + YearsInCurrentRole + YearsWithCurrManager, data = train.transformed)
+modelo3
+```
+
+```{r}
+plot(modelo3)
+
+```
+
+
+```{r}
+predictions <- modelo3 %>% predict(test.transformed)
+
+```
+
+
+```{r}
+m3_porc<-mean(predictions$class==test.transformed$Attrition)
+
+```
+
+```{r}
+table(predictions$class,test.transformed$Attrition)
+```
+
+```{r}
+modelo3_miss<-which(predictions$class!=test.transformed$Attrition)
+```
+
+```{r}
+ld1<-as.data.frame(modelo3$scaling)
+
+row.names(ld1)[which(ld1$LD1>0.3 | ld1$LD1 < (-0.3))]
+
+
+```
+## Modelo 4: con variables con mayor peso en el LD1 del modelo 3
+
+```{r}
+library(MASS)
+modelo4 <- lda(Attrition~ BusinessTravel + Department +JobInvolvement + JobSatisfaction + MaritalStatus + OverTime  + YearsAtCompany + YearsInCurrentRole + JobLevel, data = train.transformed)
+modelo4
+```
+
+```{r}
+plot(modelo4)
+
+```
+
+
+```{r}
+predictions <- modelo4 %>% predict(test.transformed)
+
+```
+
+
+```{r}
+m4_porc<-mean(predictions$class==test.transformed$Attrition)
+
+```
+
+```{r}
+table(predictions$class,test.transformed$Attrition)
+```
+
+```{r}
+modelo4_miss<-which(predictions$class!=test.transformed$Attrition)
+```
+
+## Modelo 5: reduciendo variables altamente correlacionadas y aplicando lógica del problema
+
+
+```{r}
+library(corrplot)
+corrplot(cor(nums2))
+```
+
+```{r}
+library(MASS)
+modelo5 <- lda(Attrition~ MonthlyIncome +  JobSatisfaction  + OverTime  + YearsAtCompany, data = train.transformed)
+modelo5
+```
+
+```{r}
+predictions <- modelo5 %>% predict(test.transformed)
+
+```
+
+
+```{r}
+m5_porc<-mean(predictions$class==test.transformed$Attrition)
+
+```
+
+
+```{r}
+table(predictions$class,test.transformed$Attrition)
+modelo5_miss<-which(predictions$class!=test.transformed$Attrition)
+
+
+```
+
+# Máquina de soporte vectorial
+
+## Modelo 1: todas las variables
+```{r}
+library(ggplot2)                                                             
+library(e1071)                                                               
+
+set.seed(127)
+modelo.svm=svm( Attrition~. ,   data=train.data ,  method="C-classification" ,
+kernel="linear" ,  cost=10, gamma=.1)
+
+
+predichos=data.frame ( predict (modelo.svm,  test.data ))
+clasificacion=cbind(test.data ,  predichos)
+names(clasificacion)[names(clasificacion) == "predict.modelo.svm..test.data."] <- "Predichos"
+```
+
+
+```{r}
+table(clasificacion$Attrition,  clasificacion$Predichos)
+m1svm_porc<-mean(clasificacion$Attrition==clasificacion$Predichos)
+```
+```{r}
+modelo1_svm_miss<-which(clasificacion$Attrition!=clasificacion$Predichos)
+
+```
+
+## Modelo 2: Usando las variables del modelo con mejor performance para el análisis discriminante (modelo 4)
+```{r}
+set.seed(127)
+modelo.svm=svm( Attrition~ BusinessTravel + Department +JobInvolvement + JobSatisfaction + MaritalStatus + OverTime  + YearsAtCompany + YearsInCurrentRole + JobLevel,  data=train.data ,  method="C-classification" ,
+kernel="linear" ,  cost=10, gamma=.1)
+
+
+predichos=data.frame ( predict (modelo.svm,  test.data ))
+clasificacion=cbind(test.data ,  predichos)
+names(clasificacion)[names(clasificacion) == "predict.modelo.svm..test.data."] <- "Predichos"
+```
+
+
+```{r}
+table(clasificacion$Attrition,  clasificacion$Predichos)
+m2svm_porc<-mean(clasificacion$Attrition==clasificacion$Predichos)
+```
+
+```{r}
+modelo2_svm_miss<-which(clasificacion$Attrition!=clasificacion$Predichos)
+
+```
+
+# % de clasificación correcta de cada modelo
+
+```{r}
+comparacion_modelos<-cbind(m1_porc,m2_porc,m3_porc,m4_porc,m5_porc,m1svm_porc,m2svm_porc)
+```
+```{r}
+pander(comparacion_modelos)
+```
+
+
+# Elementos mal clasificados
+```{r}
+modelo1_miss<-as.data.frame(modelo1_miss)
+rownames(modelo1_miss) <- modelo1_miss[,1]
+
+modelo2_miss<-as.data.frame(modelo2_miss)
+rownames(modelo2_miss) <- modelo2_miss[,1]
+
+modelo3_miss<-as.data.frame(modelo3_miss)
+rownames(modelo3_miss) <- modelo3_miss[,1]
+
+modelo4_miss<-as.data.frame(modelo4_miss)
+rownames(modelo4_miss) <- modelo4_miss[,1]
+
+modelo1_svm_miss<-as.data.frame(modelo1_svm_miss)
+rownames(modelo1_svm_miss) <- modelo1_svm_miss[,1]
+
+modelo2_svm_miss<-as.data.frame(modelo2_svm_miss)
+rownames(modelo2_svm_miss) <- modelo2_svm_miss[,1]
+
+
+```
+
+
+```{r}
+m12<-merge(modelo1_miss,modelo2_miss,by="row.names",all=TRUE)
+m34<-merge(modelo3_miss,modelo4_miss,by="row.names",all=TRUE)
+msvm<-merge(modelo1_svm_miss,modelo2_svm_miss,by="row.names",all=TRUE)
+
+m1234<-merge(m12,m34,by="Row.names",all=TRUE)
+
+miss_class<-merge(m1234,msvm,by="Row.names",all=TRUE)
+```
+
+```{r}
+miss_class<-miss_class[,-1]
+```
+
+```{r}
+miss_class$total <- rowSums(!is.na(miss_class))
+
+```
+
+```{r}
+plot(as.factor(miss_class$total))
+```
+
+### Estudiamos los mal clasificados por al menos cuatro de los modelos
+
+```{r}
+min4<-filter(miss_class,miss_class$total>=4)
+```
+
+
+```{r}
+test_miss<-test.data[c(na.omit(min4$modelo2_svm_miss),97),]
+```
+
+```{r}
+res1 <- compareGroups(Attrition ~ ., 
+                      data = test_miss, 
+                      ref = 1, 
+                      simplify = FALSE,
+                      max.ylev = 20,
+                      max.xlev = 20,
+                      oddsratio.method = "wald",
+                      include.miss = F, method = 2
+                      )
+
+tab<-createTable(res1, 
+                 show.ratio = F, 
+                 show.all = T, 
+                 show.p.overall=T)
+
+export2md(tab, 
+          caption = "Tabla 2", 
+          width = '15cm', 
+          header.labels = c(p.ratio = "p-valor", 
+                            p.overall = "p-valor", 
+                            all = "Total \n N(%)",
+                            ratio = "OR \n [IC95%]",
+                            N='N(%)'))
+
+
+```
+
+# Clustering
+
+## variables numéricas
+
+```{r}
+nums <- as.data.frame(dplyr::select_if(data, is.numeric))
+
+facts <- c("Attrition", "BusinessTravel", "Department", "Gender",  "MaritalStatus",                   "OverTime","JobLevel","JobSatisfaction","JobInvolvement")
+
+factores<-data[facts]
+
+```
+
+### Selección de variables
+
+```{r}
+ggcorr(nums, label = TRUE, label_size = 3, label_round = 2)
+
+```
+
+```{r}
+ggcorr(nums[,-c(9,11,12,4)], label = TRUE, label_size = 3, label_round = 2)
+
+```
+```{r}
+nums<-nums[,-c(9,11,12,4)]
+```
+
+```{r}
+s<-cov(nums)
+z<-scale(nums)
+dz<-dist(z, method = "euclidean")
+
+set.seed(123)
+c1<-hclust(dz, method = "complete", members = NULL)
+d1<-cophenetic(c1)
+#pander(paste("complete:",cor(d1,dz)))
+
+set.seed(123)
+c2<-hclust(dz, method = "single", members = NULL)
+d2<-cophenetic(c2)
+#pander(paste("single:",cor(d1,dz)))
+
+set.seed(123)
+c3<-hclust(dz, method = "centroid", members = NULL)
+d3<-cophenetic(c3)
+#pander(paste("centroid:",cor(d1,dz)))
+
+set.seed(123)
+c4<-hclust(dz, method = "average", members = NULL) #la mejor
+d4<-cophenetic(c4)
+#pander(paste("average:",cor(d1,dz)))
+
+set.seed(123)
+c5<-hclust(dz, method = "ward.D", members = NULL)
+d5<-cophenetic(c5)
+#pander(paste("ward.D:",cor(d1,dz)))
+
+
+cofamb <- data.frame(complete = cor(d1,dz), single = cor(d2,dz), centroid = cor(d3,dz), average = cor(d4,dz), ward.D = cor(d5,dz))
+
+```
+
+```{r}
+pander(cofamb)
+
+```
+
+
+```{r}
+library(NbClust)
+library(factoextra)
+
+set.seed(127)
+nclust1<-
+  NbClust(data = z, diss = NULL, distance = "euclidean",
+        min.nc = 3, max.nc = 10, method = "average")
+
+```
+
+```{r}
+nums_clust<-nums
+
+set.seed(127)
+nums_clust$conk2 <-cutree(c4, k=2)
+
+set.seed(127)
+nums_clust$conk5 <-cutree(c4, k=5)
+
+set.seed(127)
+nums_clust$conk7 <-cutree(c4, k=7)
+
+set.seed(127)
+nums_clust$conk8 <-cutree(c4, k=8)
+
+set.seed(127)
+nums_clust$conk9 <-cutree(c4, k=9)
+library("factoextra")
+library(ggplot2)
+
+set.seed(127)
+cluster_5 <- hcut(nums_clust, k = 5, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+set.seed(127)
+cluster_7 <- hcut(nums_clust, k = 7, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+set.seed(127)
+cluster_8 <- hcut(nums_clust, k = 8, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+set.seed(127)
+cluster_9 <- hcut(nums_clust, k = 9, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+#clust1<-fviz_dend(cluster_num, rect = TRUE, cex = 0.5)
+
+```
+```{r}
+library(clValid)
+dunn(clusters = nums_clust$conk7,Data = nums_clust)
+```
+
+
+```{r}
+fviz_dend(cluster_5, rect = TRUE, cex = 0.5)
+```
+```{r}
+fviz_dend(cluster_7, rect = TRUE, cex = 0.5)
+```
+```{r}
+fviz_dend(cluster_8, rect = TRUE, cex = 0.5)
+```
+
+```{r}
+fviz_dend(cluster_9, rect = TRUE, cex = 0.5)
+```
+
+## Se separan los que consistentemente forman un pequeño grupo separado para analizarlos
+```{r}
+completo<-nums
+
+set.seed(127)
+completo$conk8 <-cutree(c4, k=8)
+
+casos_especiales<-completo %>% group_by(conk8) %>% filter(n()<= 15) %>% ungroup()
+
+casos_comunes<-completo %>% group_by(conk8) %>% filter(n()> 15) %>% ungroup()
+
+casos_especiales$valor<-2
+casos_comunes$valor<-1
+
+
+comp<- rbind(casos_especiales,casos_comunes)
+comp$valor<-as.numeric(comp$valor)
+nums_comp <- as.data.frame(dplyr::select_if(comp, is.numeric))
+```
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(wesanderson)
+nums_comp %>% mutate(valor  = factor(valor)) %>%
+         ggpairs(columns=names(nums_comp[,c(1:8,10)]), 
+                 aes(color = valor ),upper = list(continuous = wrap(ggally_cor, size = 3, displayGrid = FALSE,alpha=1))) 
+```
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(wesanderson)
+nums_comp %>% mutate(valor  = factor(valor)) %>%
+         ggpairs(columns=names(nums_comp[,c(1:8,10)]), 
+                 aes(color = valor ),
+                 upper = list(continuous = wrap(ggally_cor, size = 3, displayGrid = FALSE,alpha=1)),
+                 lower = list(combo = wrap("facethist", bins = 30)),
+                 diag = list(continuous = wrap("densityDiag", alpha = 0.5)),axisLabels="show") 
+```
+
+
+```{r}
+res1 <- compareGroups(valor ~ ., 
+                      data = nums_comp[,c(1:8,10)], 
+                      ref = 1, 
+                      simplify = FALSE,
+                      max.ylev = 20,
+                      max.xlev = 20,
+                      oddsratio.method = "wald",
+                      include.miss = F, method = 2
+                      )
+
+tab<-createTable(res1, 
+                 show.ratio = F, 
+                 show.all = F, 
+                 show.p.overall=F)
+
+export2md(tab, 
+          caption = "Tabla 2", 
+          width = '15cm', 
+          header.labels = c(p.ratio = "p-valor", 
+                            p.overall = "p-valor", 
+                            all = "Total \n N(%)",
+                            ratio = "OR \n [IC95%]",
+                            N='N(%)'))
+
+
+```
+
+```{r}
+tab
+```
+
+
+# Clustering quitando especiales
+
+```{r}
+nums2<-nums[which(nums_comp$valor!=2),]
+s<-cov(nums2)
+z1<-scale(nums2)
+dz1<-dist(z1, method = "euclidean")
+
+set.seed(123)
+c1<-hclust(dz1, method = "complete", members = NULL)
+d1<-cophenetic(c1)
+#pander(paste("complete:",cor(d1,dz)))
+
+set.seed(123)
+c2<-hclust(dz1, method = "single", members = NULL)
+d2<-cophenetic(c2)
+#pander(paste("single:",cor(d1,dz)))
+
+set.seed(123)
+c3<-hclust(dz1, method = "centroid", members = NULL)
+d3<-cophenetic(c3)
+#pander(paste("centroid:",cor(d1,dz)))
+
+set.seed(123)
+c4<-hclust(dz1, method = "average", members = NULL) 
+d4<-cophenetic(c4)
+#pander(paste("average:",cor(d1,dz)))
+
+set.seed(123)
+c5<-hclust(dz1, method = "ward.D", members = NULL)
+d5<-cophenetic(c5)
+#pander(paste("ward.D:",cor(d1,dz)))
+
+
+cofamb <- data.frame(complete = cor(d1,dz1), single = cor(d2,dz1), centroid = cor(d3,dz1), average = cor(d4,dz1), ward.D = cor(d5,dz1))
+
+```
+
+```{r}
+pander(cofamb)
+
+```
+
+
+```{r}
+library(NbClust)
+library(factoextra)
+set.seed(127)
+
+nclust1<-
+  NbClust(data = z1, diss = NULL, distance = "euclidean",
+        min.nc = 3, max.nc = 10, method = "average")
+
+```
+
+```{r}
+nums_clust2<-nums2
+set.seed(127)
+nums_clust2$conk5 <-cutree(c4, k=5)
+set.seed(127)
+nums_clust2$conk7 <-cutree(c4, k=7)
+set.seed(127)
+nums_clust2$conk9 <-cutree(c4, k=9)
+library("factoextra")
+library(ggplot2)
+
+set.seed(127)
+cluster_5 <- hcut(nums_clust2, k = 5, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+set.seed(127)
+cluster_7 <- hcut(nums_clust2, k = 7, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+set.seed(127)
+cluster_9 <- hcut(nums_clust2, k = 9, stand = TRUE, hc_method = "average", hc_metric = "euclidean")
+
+#clust1<-fviz_dend(cluster_num, rect = TRUE, cex = 0.5)
+
+```
+
+```{r}
+fviz_dend(cluster_5, rect = TRUE, cex = 0.5)
+```
+
+```{r}
+fviz_dend(cluster_7, rect = TRUE, cex = 0.5)
+```
+
+```{r}
+library("ggplot2")
+library("reshape2")
+library("purrr")
+library("dplyr")
+library("dendextend")
+
+dendro <- as.dendrogram(cluster_9)
+dendro.col <- dendro %>%
+  set("branches_k_color", k = 9, value =   c("darkslategray", "darkslategray4", "darkslategray3", "gold3", "darkcyan", "cyan3", "gold3","pink","purple")) %>%
+  set("branches_lwd", 0.6) %>%
+  set("labels_colors", 
+      value = c("darkslategray")) %>% 
+  set("labels_cex", 0.5)
+ggd1 <- as.ggdend(dendro.col)
+ggplot(ggd1, theme = theme_minimal()) +
+  labs(x = "Num. observations", y = "Height", title = "Dendrogram, k = 9")
+```
+
+```{r}
+fviz_dend(cluster_9, rect = TRUE, cex = 0.5)
+```
+
+## Clustering divisivo
+```{r}
+library(cluster)
+cluster_div <- diana(dz)
+
+cluster_div$dc
+
+pltree(cluster_div, cex = 0.6, hang = -1, main = "Dendrogram of diana")
+
+```
+
+```{r}
+res.dist <- dist(dz, method = "euclidean")
+
+hc1 <- hclust(res.dist, method = "complete")
+hc2 <- hclust(res.dist, method = "average")
+
+dend1 <- as.dendrogram (hc1)
+dend2 <- as.dendrogram (hc2)
+
+tanglegram(dend1, dend2)
+```
+
+
+
+## Clustering categóricas
+
+```{r}
+library(cluster) 
+gower.dist <- daisy(factores, metric = c("gower"))
+divisive.clust <- diana(as.matrix(gower.dist), 
+                  diss = TRUE, keep.diss = TRUE)
+
+```
+
+```{r}
+library("ggplot2")
+library("reshape2")
+library("purrr")
+library("dplyr")
+
+library("dendextend")
+dendro <- as.dendrogram(divisive.clust)
+dendro.col <- dendro %>%
+  set("branches_k_color", k = 8, value =   c("darkslategray", "darkslategray4", "darkslategray3", "gold3", "darkcyan", "cyan3", "gold3","lightblue")) %>%
+  set("branches_lwd", 0.6) %>%
+  set("labels_colors", 
+      value = c("darkslategray")) %>% 
+  set("labels_cex", 0.5)
+ggd1 <- as.ggdend(dendro.col)
+ggplot(ggd1, theme = theme_minimal()) +
+  labs(x = "Num. observations", y = "Height", title = "Dendrogram, k = 7")
+```
+
+```{r}
+ggplot(ggd1, labels = T) + 
+  scale_y_reverse(expand = c(0.2, 0)) +
+  coord_polar(theta="x")
+```
+
+# Clustering kmeans
+```{r}
+
+ckm<-kmeans(z, centers=8,iter.max = 100 )
+clustkm<-fviz_cluster(ckm,nums)
+
+nums_clust$km5<-ckm$cluster
+clustkm
+```
+
