@@ -20,30 +20,6 @@ _ **Agosto 2021** _
 #
 
 #
-## Índice
-
-[Introducción 3](#_Toc79702300)
-
-[Pre procesamiento de datos y análisis exploratorio 3](#_Toc79702301)
-
-[Tabla I: descripción de las variables de estudio 4](#_Toc79702302)
-
-[Primera Parte: Clasificación Supervisada 5](#_Toc79702303)
-
-[Tabla II: Porcentaje de clasificación correcta de cada modelo evaluado. 7](#_Toc79702304)
-
-[Segunda Parte: Clasificación No Supervisada 7](#_Toc79702305)
-
-[Tabla III: Comparación del índice de correlación cofenética para cada uno de los métodos 7](#_Toc79702306)
-
-[Tabla IV: Comparación de las variables numéricas entre el grupo general y el especial 8](#_Toc79702307)
-
-[Figura 1: Clusters generados con las variables categóricas 9](#_Toc79702308)
-
-[Conclusiones 9](#_Toc79702309)
-
-###
-
 
 ### Introducción
 
@@ -230,7 +206,7 @@ Para el análisis de las variables categóricas, se utilizó la distancia de Gow
 
 _Figura 1: clusters generados con las variables categóricas_
 
-![](RackMultipart20210920-4-nmtpuo_html_6e449c7015e03cd8.png)
+![](dendogram.png)
 
 Aún así, puede verse en la Figura 1 que nuevamente se observó el efecto de un clúster conteniendo a la gran mayoría de las observaciones, mientras que otros contienen muy pocas observaciones. Se consideró que explica que la mayoría de los empleados tienen combinaciones predecibles de las variables de estudio, y que aquellos que no son los que resaltan al intentar clasificarlos con estos métodos.
 
